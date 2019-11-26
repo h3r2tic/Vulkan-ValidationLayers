@@ -43,48 +43,54 @@
 
 #define VK_VERSION_1_1_NAME "VK_VERSION_1_1"
 
+enum ext_enabled : unsigned char {
+    not_enabled,
+    enabled_by_createinfo,
+    enabled_by_api_level,
+};
+
 struct InstanceExtensions {
-    bool vk_feature_version_1_1{false};
-    bool vk_ext_acquire_xlib_display{false};
-    bool vk_ext_debug_report{false};
-    bool vk_ext_debug_utils{false};
-    bool vk_ext_direct_mode_display{false};
-    bool vk_ext_display_surface_counter{false};
-    bool vk_ext_headless_surface{false};
-    bool vk_ext_metal_surface{false};
-    bool vk_ext_swapchain_color_space{false};
-    bool vk_ext_validation_features{false};
-    bool vk_ext_validation_flags{false};
-    bool vk_fuchsia_imagepipe_surface{false};
-    bool vk_ggp_stream_descriptor_surface{false};
-    bool vk_khr_android_surface{false};
-    bool vk_khr_device_group_creation{false};
-    bool vk_khr_display{false};
-    bool vk_khr_external_fence_capabilities{false};
-    bool vk_khr_external_memory_capabilities{false};
-    bool vk_khr_external_semaphore_capabilities{false};
-    bool vk_khr_get_display_properties_2{false};
-    bool vk_khr_get_physical_device_properties_2{false};
-    bool vk_khr_get_surface_capabilities_2{false};
-    bool vk_khr_surface{false};
-    bool vk_khr_surface_protected_capabilities{false};
-    bool vk_khr_wayland_surface{false};
-    bool vk_khr_win32_surface{false};
-    bool vk_khr_xcb_surface{false};
-    bool vk_khr_xlib_surface{false};
-    bool vk_mvk_ios_surface{false};
-    bool vk_mvk_macos_surface{false};
-    bool vk_nn_vi_surface{false};
-    bool vk_nv_external_memory_capabilities{false};
+    ext_enabled vk_feature_version_1_1{not_enabled};
+    ext_enabled vk_ext_acquire_xlib_display{not_enabled};
+    ext_enabled vk_ext_debug_report{not_enabled};
+    ext_enabled vk_ext_debug_utils{not_enabled};
+    ext_enabled vk_ext_direct_mode_display{not_enabled};
+    ext_enabled vk_ext_display_surface_counter{not_enabled};
+    ext_enabled vk_ext_headless_surface{not_enabled};
+    ext_enabled vk_ext_metal_surface{not_enabled};
+    ext_enabled vk_ext_swapchain_color_space{not_enabled};
+    ext_enabled vk_ext_validation_features{not_enabled};
+    ext_enabled vk_ext_validation_flags{not_enabled};
+    ext_enabled vk_fuchsia_imagepipe_surface{not_enabled};
+    ext_enabled vk_ggp_stream_descriptor_surface{not_enabled};
+    ext_enabled vk_khr_android_surface{not_enabled};
+    ext_enabled vk_khr_device_group_creation{not_enabled};
+    ext_enabled vk_khr_display{not_enabled};
+    ext_enabled vk_khr_external_fence_capabilities{not_enabled};
+    ext_enabled vk_khr_external_memory_capabilities{not_enabled};
+    ext_enabled vk_khr_external_semaphore_capabilities{not_enabled};
+    ext_enabled vk_khr_get_display_properties_2{not_enabled};
+    ext_enabled vk_khr_get_physical_device_properties_2{not_enabled};
+    ext_enabled vk_khr_get_surface_capabilities_2{not_enabled};
+    ext_enabled vk_khr_surface{not_enabled};
+    ext_enabled vk_khr_surface_protected_capabilities{not_enabled};
+    ext_enabled vk_khr_wayland_surface{not_enabled};
+    ext_enabled vk_khr_win32_surface{not_enabled};
+    ext_enabled vk_khr_xcb_surface{not_enabled};
+    ext_enabled vk_khr_xlib_surface{not_enabled};
+    ext_enabled vk_mvk_ios_surface{not_enabled};
+    ext_enabled vk_mvk_macos_surface{not_enabled};
+    ext_enabled vk_nn_vi_surface{not_enabled};
+    ext_enabled vk_nv_external_memory_capabilities{not_enabled};
 
     struct InstanceReq {
-        const bool InstanceExtensions::* enabled;
+        const ext_enabled InstanceExtensions::* enabled;
         const char *name;
     };
     typedef std::vector<InstanceReq> InstanceReqVec;
     struct InstanceInfo {
-       InstanceInfo(bool InstanceExtensions::* state_, const InstanceReqVec requires_): state(state_), requires(requires_) {}
-       bool InstanceExtensions::* state;
+       InstanceInfo(ext_enabled InstanceExtensions::* state_, const InstanceReqVec requires_): state(state_), requires(requires_) {}
+       ext_enabled InstanceExtensions::* state;
        InstanceReqVec requires;
     };
 
@@ -194,23 +200,25 @@ struct InstanceExtensions {
             VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
             VK_KHR_EXTERNAL_SEMAPHORE_CAPABILITIES_EXTENSION_NAME,
             VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
-            "VK_VERSION_1_1",
         };
 
         // Initialize struct data, robust to invalid pCreateInfo
+        uint32_t api_version = NormalizeApiVersion(requested_api_version);
+        if (api_version >= VK_API_VERSION_1_1) {
+            auto info = get_info("VK_VERSION_1_1");
+            if (info.state) this->*(info.state) = enabled_by_createinfo;
+            for (auto promoted_ext : V_1_1_promoted_instance_apis) {
+                info = get_info(promoted_ext);
+                assert(info.state);
+                if (info.state) this->*(info.state) = enabled_by_api_level;
+            }
+        }
+        // CreateInfo takes precedence over promoted
         if (pCreateInfo->ppEnabledExtensionNames) {
             for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; i++) {
                 if (!pCreateInfo->ppEnabledExtensionNames[i]) continue;
                 auto info = get_info(pCreateInfo->ppEnabledExtensionNames[i]);
-                if(info.state) this->*(info.state) = true;
-            }
-        }
-        uint32_t api_version = NormalizeApiVersion(requested_api_version);
-        if (api_version >= VK_API_VERSION_1_1) {
-            for (auto promoted_ext : V_1_1_promoted_instance_apis) {
-                auto info = get_info(promoted_ext);
-                assert(info.state);
-                if (info.state) this->*(info.state) = true;
+                if (info.state) this->*(info.state) = enabled_by_createinfo;
             }
         }
         return api_version;
@@ -276,176 +284,176 @@ static const std::set<std::string> kInstanceExtensionNames = {
 };
 
 struct DeviceExtensions : public InstanceExtensions {
-    bool vk_feature_version_1_1{false};
-    bool vk_amd_buffer_marker{false};
-    bool vk_amd_device_coherent_memory{false};
-    bool vk_amd_display_native_hdr{false};
-    bool vk_amd_draw_indirect_count{false};
-    bool vk_amd_gcn_shader{false};
-    bool vk_amd_gpu_shader_half_float{false};
-    bool vk_amd_gpu_shader_int16{false};
-    bool vk_amd_memory_overallocation_behavior{false};
-    bool vk_amd_mixed_attachment_samples{false};
-    bool vk_amd_negative_viewport_height{false};
-    bool vk_amd_pipeline_compiler_control{false};
-    bool vk_amd_rasterization_order{false};
-    bool vk_amd_shader_ballot{false};
-    bool vk_amd_shader_core_properties{false};
-    bool vk_amd_shader_core_properties_2{false};
-    bool vk_amd_shader_explicit_vertex_parameter{false};
-    bool vk_amd_shader_fragment_mask{false};
-    bool vk_amd_shader_image_load_store_lod{false};
-    bool vk_amd_shader_info{false};
-    bool vk_amd_shader_trinary_minmax{false};
-    bool vk_amd_texture_gather_bias_lod{false};
-    bool vk_android_external_memory_android_hardware_buffer{false};
-    bool vk_ext_astc_decode_mode{false};
-    bool vk_ext_blend_operation_advanced{false};
-    bool vk_ext_buffer_device_address{false};
-    bool vk_ext_calibrated_timestamps{false};
-    bool vk_ext_conditional_rendering{false};
-    bool vk_ext_conservative_rasterization{false};
-    bool vk_ext_debug_marker{false};
-    bool vk_ext_depth_clip_enable{false};
-    bool vk_ext_depth_range_unrestricted{false};
-    bool vk_ext_descriptor_indexing{false};
-    bool vk_ext_discard_rectangles{false};
-    bool vk_ext_display_control{false};
-    bool vk_ext_external_memory_dma_buf{false};
-    bool vk_ext_external_memory_host{false};
-    bool vk_ext_filter_cubic{false};
-    bool vk_ext_fragment_density_map{false};
-    bool vk_ext_fragment_shader_interlock{false};
-    bool vk_ext_full_screen_exclusive{false};
-    bool vk_ext_global_priority{false};
-    bool vk_ext_hdr_metadata{false};
-    bool vk_ext_host_query_reset{false};
-    bool vk_ext_image_drm_format_modifier{false};
-    bool vk_ext_index_type_uint8{false};
-    bool vk_ext_inline_uniform_block{false};
-    bool vk_ext_line_rasterization{false};
-    bool vk_ext_memory_budget{false};
-    bool vk_ext_memory_priority{false};
-    bool vk_ext_pci_bus_info{false};
-    bool vk_ext_pipeline_creation_feedback{false};
-    bool vk_ext_post_depth_coverage{false};
-    bool vk_ext_queue_family_foreign{false};
-    bool vk_ext_sample_locations{false};
-    bool vk_ext_sampler_filter_minmax{false};
-    bool vk_ext_scalar_block_layout{false};
-    bool vk_ext_separate_stencil_usage{false};
-    bool vk_ext_shader_demote_to_helper_invocation{false};
-    bool vk_ext_shader_stencil_export{false};
-    bool vk_ext_shader_subgroup_ballot{false};
-    bool vk_ext_shader_subgroup_vote{false};
-    bool vk_ext_shader_viewport_index_layer{false};
-    bool vk_ext_subgroup_size_control{false};
-    bool vk_ext_texel_buffer_alignment{false};
-    bool vk_ext_texture_compression_astc_hdr{false};
-    bool vk_ext_transform_feedback{false};
-    bool vk_ext_validation_cache{false};
-    bool vk_ext_vertex_attribute_divisor{false};
-    bool vk_ext_ycbcr_image_arrays{false};
-    bool vk_ggp_frame_token{false};
-    bool vk_google_decorate_string{false};
-    bool vk_google_display_timing{false};
-    bool vk_google_hlsl_functionality1{false};
-    bool vk_google_user_type{false};
-    bool vk_img_filter_cubic{false};
-    bool vk_img_format_pvrtc{false};
-    bool vk_intel_performance_query{false};
-    bool vk_intel_shader_integer_functions_2{false};
-    bool vk_khr_16bit_storage{false};
-    bool vk_khr_8bit_storage{false};
-    bool vk_khr_bind_memory_2{false};
-    bool vk_khr_create_renderpass_2{false};
-    bool vk_khr_dedicated_allocation{false};
-    bool vk_khr_depth_stencil_resolve{false};
-    bool vk_khr_descriptor_update_template{false};
-    bool vk_khr_device_group{false};
-    bool vk_khr_display_swapchain{false};
-    bool vk_khr_draw_indirect_count{false};
-    bool vk_khr_driver_properties{false};
-    bool vk_khr_external_fence{false};
-    bool vk_khr_external_fence_fd{false};
-    bool vk_khr_external_fence_win32{false};
-    bool vk_khr_external_memory{false};
-    bool vk_khr_external_memory_fd{false};
-    bool vk_khr_external_memory_win32{false};
-    bool vk_khr_external_semaphore{false};
-    bool vk_khr_external_semaphore_fd{false};
-    bool vk_khr_external_semaphore_win32{false};
-    bool vk_khr_get_memory_requirements_2{false};
-    bool vk_khr_image_format_list{false};
-    bool vk_khr_imageless_framebuffer{false};
-    bool vk_khr_incremental_present{false};
-    bool vk_khr_maintenance1{false};
-    bool vk_khr_maintenance2{false};
-    bool vk_khr_maintenance3{false};
-    bool vk_khr_multiview{false};
-    bool vk_khr_performance_query{false};
-    bool vk_khr_pipeline_executable_properties{false};
-    bool vk_khr_push_descriptor{false};
-    bool vk_khr_relaxed_block_layout{false};
-    bool vk_khr_sampler_mirror_clamp_to_edge{false};
-    bool vk_khr_sampler_ycbcr_conversion{false};
-    bool vk_khr_separate_depth_stencil_layouts{false};
-    bool vk_khr_shader_atomic_int64{false};
-    bool vk_khr_shader_clock{false};
-    bool vk_khr_shader_draw_parameters{false};
-    bool vk_khr_shader_float16_int8{false};
-    bool vk_khr_shader_float_controls{false};
-    bool vk_khr_shader_subgroup_extended_types{false};
-    bool vk_khr_shared_presentable_image{false};
-    bool vk_khr_spirv_1_4{false};
-    bool vk_khr_storage_buffer_storage_class{false};
-    bool vk_khr_swapchain{false};
-    bool vk_khr_swapchain_mutable_format{false};
-    bool vk_khr_timeline_semaphore{false};
-    bool vk_khr_uniform_buffer_standard_layout{false};
-    bool vk_khr_variable_pointers{false};
-    bool vk_khr_vulkan_memory_model{false};
-    bool vk_khr_win32_keyed_mutex{false};
-    bool vk_nvx_device_generated_commands{false};
-    bool vk_nvx_image_view_handle{false};
-    bool vk_nvx_multiview_per_view_attributes{false};
-    bool vk_nv_clip_space_w_scaling{false};
-    bool vk_nv_compute_shader_derivatives{false};
-    bool vk_nv_cooperative_matrix{false};
-    bool vk_nv_corner_sampled_image{false};
-    bool vk_nv_coverage_reduction_mode{false};
-    bool vk_nv_dedicated_allocation{false};
-    bool vk_nv_dedicated_allocation_image_aliasing{false};
-    bool vk_nv_device_diagnostic_checkpoints{false};
-    bool vk_nv_external_memory{false};
-    bool vk_nv_external_memory_win32{false};
-    bool vk_nv_fill_rectangle{false};
-    bool vk_nv_fragment_coverage_to_color{false};
-    bool vk_nv_fragment_shader_barycentric{false};
-    bool vk_nv_framebuffer_mixed_samples{false};
-    bool vk_nv_geometry_shader_passthrough{false};
-    bool vk_nv_glsl_shader{false};
-    bool vk_nv_mesh_shader{false};
-    bool vk_nv_ray_tracing{false};
-    bool vk_nv_representative_fragment_test{false};
-    bool vk_nv_sample_mask_override_coverage{false};
-    bool vk_nv_scissor_exclusive{false};
-    bool vk_nv_shader_image_footprint{false};
-    bool vk_nv_shader_sm_builtins{false};
-    bool vk_nv_shader_subgroup_partitioned{false};
-    bool vk_nv_shading_rate_image{false};
-    bool vk_nv_viewport_array2{false};
-    bool vk_nv_viewport_swizzle{false};
-    bool vk_nv_win32_keyed_mutex{false};
+    ext_enabled vk_feature_version_1_1{not_enabled};
+    ext_enabled vk_amd_buffer_marker{not_enabled};
+    ext_enabled vk_amd_device_coherent_memory{not_enabled};
+    ext_enabled vk_amd_display_native_hdr{not_enabled};
+    ext_enabled vk_amd_draw_indirect_count{not_enabled};
+    ext_enabled vk_amd_gcn_shader{not_enabled};
+    ext_enabled vk_amd_gpu_shader_half_float{not_enabled};
+    ext_enabled vk_amd_gpu_shader_int16{not_enabled};
+    ext_enabled vk_amd_memory_overallocation_behavior{not_enabled};
+    ext_enabled vk_amd_mixed_attachment_samples{not_enabled};
+    ext_enabled vk_amd_negative_viewport_height{not_enabled};
+    ext_enabled vk_amd_pipeline_compiler_control{not_enabled};
+    ext_enabled vk_amd_rasterization_order{not_enabled};
+    ext_enabled vk_amd_shader_ballot{not_enabled};
+    ext_enabled vk_amd_shader_core_properties{not_enabled};
+    ext_enabled vk_amd_shader_core_properties_2{not_enabled};
+    ext_enabled vk_amd_shader_explicit_vertex_parameter{not_enabled};
+    ext_enabled vk_amd_shader_fragment_mask{not_enabled};
+    ext_enabled vk_amd_shader_image_load_store_lod{not_enabled};
+    ext_enabled vk_amd_shader_info{not_enabled};
+    ext_enabled vk_amd_shader_trinary_minmax{not_enabled};
+    ext_enabled vk_amd_texture_gather_bias_lod{not_enabled};
+    ext_enabled vk_android_external_memory_android_hardware_buffer{not_enabled};
+    ext_enabled vk_ext_astc_decode_mode{not_enabled};
+    ext_enabled vk_ext_blend_operation_advanced{not_enabled};
+    ext_enabled vk_ext_buffer_device_address{not_enabled};
+    ext_enabled vk_ext_calibrated_timestamps{not_enabled};
+    ext_enabled vk_ext_conditional_rendering{not_enabled};
+    ext_enabled vk_ext_conservative_rasterization{not_enabled};
+    ext_enabled vk_ext_debug_marker{not_enabled};
+    ext_enabled vk_ext_depth_clip_enable{not_enabled};
+    ext_enabled vk_ext_depth_range_unrestricted{not_enabled};
+    ext_enabled vk_ext_descriptor_indexing{not_enabled};
+    ext_enabled vk_ext_discard_rectangles{not_enabled};
+    ext_enabled vk_ext_display_control{not_enabled};
+    ext_enabled vk_ext_external_memory_dma_buf{not_enabled};
+    ext_enabled vk_ext_external_memory_host{not_enabled};
+    ext_enabled vk_ext_filter_cubic{not_enabled};
+    ext_enabled vk_ext_fragment_density_map{not_enabled};
+    ext_enabled vk_ext_fragment_shader_interlock{not_enabled};
+    ext_enabled vk_ext_full_screen_exclusive{not_enabled};
+    ext_enabled vk_ext_global_priority{not_enabled};
+    ext_enabled vk_ext_hdr_metadata{not_enabled};
+    ext_enabled vk_ext_host_query_reset{not_enabled};
+    ext_enabled vk_ext_image_drm_format_modifier{not_enabled};
+    ext_enabled vk_ext_index_type_uint8{not_enabled};
+    ext_enabled vk_ext_inline_uniform_block{not_enabled};
+    ext_enabled vk_ext_line_rasterization{not_enabled};
+    ext_enabled vk_ext_memory_budget{not_enabled};
+    ext_enabled vk_ext_memory_priority{not_enabled};
+    ext_enabled vk_ext_pci_bus_info{not_enabled};
+    ext_enabled vk_ext_pipeline_creation_feedback{not_enabled};
+    ext_enabled vk_ext_post_depth_coverage{not_enabled};
+    ext_enabled vk_ext_queue_family_foreign{not_enabled};
+    ext_enabled vk_ext_sample_locations{not_enabled};
+    ext_enabled vk_ext_sampler_filter_minmax{not_enabled};
+    ext_enabled vk_ext_scalar_block_layout{not_enabled};
+    ext_enabled vk_ext_separate_stencil_usage{not_enabled};
+    ext_enabled vk_ext_shader_demote_to_helper_invocation{not_enabled};
+    ext_enabled vk_ext_shader_stencil_export{not_enabled};
+    ext_enabled vk_ext_shader_subgroup_ballot{not_enabled};
+    ext_enabled vk_ext_shader_subgroup_vote{not_enabled};
+    ext_enabled vk_ext_shader_viewport_index_layer{not_enabled};
+    ext_enabled vk_ext_subgroup_size_control{not_enabled};
+    ext_enabled vk_ext_texel_buffer_alignment{not_enabled};
+    ext_enabled vk_ext_texture_compression_astc_hdr{not_enabled};
+    ext_enabled vk_ext_transform_feedback{not_enabled};
+    ext_enabled vk_ext_validation_cache{not_enabled};
+    ext_enabled vk_ext_vertex_attribute_divisor{not_enabled};
+    ext_enabled vk_ext_ycbcr_image_arrays{not_enabled};
+    ext_enabled vk_ggp_frame_token{not_enabled};
+    ext_enabled vk_google_decorate_string{not_enabled};
+    ext_enabled vk_google_display_timing{not_enabled};
+    ext_enabled vk_google_hlsl_functionality1{not_enabled};
+    ext_enabled vk_google_user_type{not_enabled};
+    ext_enabled vk_img_filter_cubic{not_enabled};
+    ext_enabled vk_img_format_pvrtc{not_enabled};
+    ext_enabled vk_intel_performance_query{not_enabled};
+    ext_enabled vk_intel_shader_integer_functions_2{not_enabled};
+    ext_enabled vk_khr_16bit_storage{not_enabled};
+    ext_enabled vk_khr_8bit_storage{not_enabled};
+    ext_enabled vk_khr_bind_memory_2{not_enabled};
+    ext_enabled vk_khr_create_renderpass_2{not_enabled};
+    ext_enabled vk_khr_dedicated_allocation{not_enabled};
+    ext_enabled vk_khr_depth_stencil_resolve{not_enabled};
+    ext_enabled vk_khr_descriptor_update_template{not_enabled};
+    ext_enabled vk_khr_device_group{not_enabled};
+    ext_enabled vk_khr_display_swapchain{not_enabled};
+    ext_enabled vk_khr_draw_indirect_count{not_enabled};
+    ext_enabled vk_khr_driver_properties{not_enabled};
+    ext_enabled vk_khr_external_fence{not_enabled};
+    ext_enabled vk_khr_external_fence_fd{not_enabled};
+    ext_enabled vk_khr_external_fence_win32{not_enabled};
+    ext_enabled vk_khr_external_memory{not_enabled};
+    ext_enabled vk_khr_external_memory_fd{not_enabled};
+    ext_enabled vk_khr_external_memory_win32{not_enabled};
+    ext_enabled vk_khr_external_semaphore{not_enabled};
+    ext_enabled vk_khr_external_semaphore_fd{not_enabled};
+    ext_enabled vk_khr_external_semaphore_win32{not_enabled};
+    ext_enabled vk_khr_get_memory_requirements_2{not_enabled};
+    ext_enabled vk_khr_image_format_list{not_enabled};
+    ext_enabled vk_khr_imageless_framebuffer{not_enabled};
+    ext_enabled vk_khr_incremental_present{not_enabled};
+    ext_enabled vk_khr_maintenance1{not_enabled};
+    ext_enabled vk_khr_maintenance2{not_enabled};
+    ext_enabled vk_khr_maintenance3{not_enabled};
+    ext_enabled vk_khr_multiview{not_enabled};
+    ext_enabled vk_khr_performance_query{not_enabled};
+    ext_enabled vk_khr_pipeline_executable_properties{not_enabled};
+    ext_enabled vk_khr_push_descriptor{not_enabled};
+    ext_enabled vk_khr_relaxed_block_layout{not_enabled};
+    ext_enabled vk_khr_sampler_mirror_clamp_to_edge{not_enabled};
+    ext_enabled vk_khr_sampler_ycbcr_conversion{not_enabled};
+    ext_enabled vk_khr_separate_depth_stencil_layouts{not_enabled};
+    ext_enabled vk_khr_shader_atomic_int64{not_enabled};
+    ext_enabled vk_khr_shader_clock{not_enabled};
+    ext_enabled vk_khr_shader_draw_parameters{not_enabled};
+    ext_enabled vk_khr_shader_float16_int8{not_enabled};
+    ext_enabled vk_khr_shader_float_controls{not_enabled};
+    ext_enabled vk_khr_shader_subgroup_extended_types{not_enabled};
+    ext_enabled vk_khr_shared_presentable_image{not_enabled};
+    ext_enabled vk_khr_spirv_1_4{not_enabled};
+    ext_enabled vk_khr_storage_buffer_storage_class{not_enabled};
+    ext_enabled vk_khr_swapchain{not_enabled};
+    ext_enabled vk_khr_swapchain_mutable_format{not_enabled};
+    ext_enabled vk_khr_timeline_semaphore{not_enabled};
+    ext_enabled vk_khr_uniform_buffer_standard_layout{not_enabled};
+    ext_enabled vk_khr_variable_pointers{not_enabled};
+    ext_enabled vk_khr_vulkan_memory_model{not_enabled};
+    ext_enabled vk_khr_win32_keyed_mutex{not_enabled};
+    ext_enabled vk_nvx_device_generated_commands{not_enabled};
+    ext_enabled vk_nvx_image_view_handle{not_enabled};
+    ext_enabled vk_nvx_multiview_per_view_attributes{not_enabled};
+    ext_enabled vk_nv_clip_space_w_scaling{not_enabled};
+    ext_enabled vk_nv_compute_shader_derivatives{not_enabled};
+    ext_enabled vk_nv_cooperative_matrix{not_enabled};
+    ext_enabled vk_nv_corner_sampled_image{not_enabled};
+    ext_enabled vk_nv_coverage_reduction_mode{not_enabled};
+    ext_enabled vk_nv_dedicated_allocation{not_enabled};
+    ext_enabled vk_nv_dedicated_allocation_image_aliasing{not_enabled};
+    ext_enabled vk_nv_device_diagnostic_checkpoints{not_enabled};
+    ext_enabled vk_nv_external_memory{not_enabled};
+    ext_enabled vk_nv_external_memory_win32{not_enabled};
+    ext_enabled vk_nv_fill_rectangle{not_enabled};
+    ext_enabled vk_nv_fragment_coverage_to_color{not_enabled};
+    ext_enabled vk_nv_fragment_shader_barycentric{not_enabled};
+    ext_enabled vk_nv_framebuffer_mixed_samples{not_enabled};
+    ext_enabled vk_nv_geometry_shader_passthrough{not_enabled};
+    ext_enabled vk_nv_glsl_shader{not_enabled};
+    ext_enabled vk_nv_mesh_shader{not_enabled};
+    ext_enabled vk_nv_ray_tracing{not_enabled};
+    ext_enabled vk_nv_representative_fragment_test{not_enabled};
+    ext_enabled vk_nv_sample_mask_override_coverage{not_enabled};
+    ext_enabled vk_nv_scissor_exclusive{not_enabled};
+    ext_enabled vk_nv_shader_image_footprint{not_enabled};
+    ext_enabled vk_nv_shader_sm_builtins{not_enabled};
+    ext_enabled vk_nv_shader_subgroup_partitioned{not_enabled};
+    ext_enabled vk_nv_shading_rate_image{not_enabled};
+    ext_enabled vk_nv_viewport_array2{not_enabled};
+    ext_enabled vk_nv_viewport_swizzle{not_enabled};
+    ext_enabled vk_nv_win32_keyed_mutex{not_enabled};
 
     struct DeviceReq {
-        const bool DeviceExtensions::* enabled;
+        const ext_enabled DeviceExtensions::* enabled;
         const char *name;
     };
     typedef std::vector<DeviceReq> DeviceReqVec;
     struct DeviceInfo {
-       DeviceInfo(bool DeviceExtensions::* state_, const DeviceReqVec requires_): state(state_), requires(requires_) {}
-       bool DeviceExtensions::* state;
+       DeviceInfo(ext_enabled DeviceExtensions::* state_, const DeviceReqVec requires_): state(state_), requires(requires_) {}
+       ext_enabled DeviceExtensions::* state;
        DeviceReqVec requires;
     };
 
@@ -796,23 +804,25 @@ struct DeviceExtensions : public InstanceExtensions {
             VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
             VK_KHR_STORAGE_BUFFER_STORAGE_CLASS_EXTENSION_NAME,
             VK_KHR_VARIABLE_POINTERS_EXTENSION_NAME,
-            "VK_VERSION_1_1",
         };
 
         // Initialize struct data, robust to invalid pCreateInfo
+        uint32_t api_version = NormalizeApiVersion(requested_api_version);
+        if (api_version >= VK_API_VERSION_1_1) {
+            auto info = get_info("VK_VERSION_1_1");
+            if (info.state) this->*(info.state) = enabled_by_createinfo;
+            for (auto promoted_ext : V_1_1_promoted_device_apis) {
+                info = get_info(promoted_ext);
+                assert(info.state);
+                if (info.state) this->*(info.state) = enabled_by_api_level;
+            }
+        }
+        // CreateInfo takes precedence over promoted
         if (pCreateInfo->ppEnabledExtensionNames) {
             for (uint32_t i = 0; i < pCreateInfo->enabledExtensionCount; i++) {
                 if (!pCreateInfo->ppEnabledExtensionNames[i]) continue;
                 auto info = get_info(pCreateInfo->ppEnabledExtensionNames[i]);
-                if(info.state) this->*(info.state) = true;
-            }
-        }
-        uint32_t api_version = NormalizeApiVersion(requested_api_version);
-        if (api_version >= VK_API_VERSION_1_1) {
-            for (auto promoted_ext : V_1_1_promoted_device_apis) {
-                auto info = get_info(promoted_ext);
-                assert(info.state);
-                if (info.state) this->*(info.state) = true;
+                if (info.state) this->*(info.state) = enabled_by_createinfo;
             }
         }
         return api_version;

@@ -1084,7 +1084,7 @@ class ValidationStateTracker : public ValidationObject {
     bool performance_lock_acquired = false;
 
     template <typename ExtProp>
-    void GetPhysicalDeviceExtProperties(VkPhysicalDevice gpu, bool enabled, ExtProp* ext_prop) {
+    void GetPhysicalDeviceExtProperties(VkPhysicalDevice gpu, ext_enabled enabled, ExtProp* ext_prop) {
         assert(ext_prop);
         if (enabled) {
             *ext_prop = lvl_init_struct<ExtProp>();

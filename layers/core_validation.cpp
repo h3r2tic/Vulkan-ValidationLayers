@@ -1607,6 +1607,33 @@ bool CoreChecks::ReportInvalidCommandBuffer(const CMD_BUFFER_STATE *cb_state, co
                     "You are adding %s to %s that is invalid because bound %s was %s.", call_source,
                     report_data->FormatHandle(cb_state->commandBuffer).c_str(), report_data->FormatHandle(obj).c_str(), cause_str);
     }
+
+    for (auto obj : cb_state->object_bindings) {
+        auto base_obj = GetStateStructPtrFromObject(obj);
+
+        if (base_obj) {
+            switch (obj.type) {
+                case kVulkanObjectTypeBufferView:
+                    if (((BUFFER_VIEW_STATE *)base_obj)->buffer_state->destroyed) {
+                    }
+                    for (auto mem_state_binding : ((BUFFER_VIEW_STATE *)base_obj)->buffer_state->GetBoundMemoryState()) {
+                        if (mem_state_binding->destroyed) {
+                        }
+                    }
+                    break;
+                case kVulkanObjectTypeImageView:
+                    if (((IMAGE_VIEW_STATE *)base_obj)->image_state->destroyed) {
+                    }
+                    for (auto mem_state_binding : ((IMAGE_VIEW_STATE *)base_obj)->image_state->GetBoundMemoryState()) {
+                        if (mem_state_binding->destroyed) {
+                        }
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
     return skip;
 }
 

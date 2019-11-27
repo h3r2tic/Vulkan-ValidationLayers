@@ -1595,42 +1595,54 @@ static char const *GetCauseStr(VulkanTypedHandle obj) {
     return "destroyed";
 }
 
+static bool PrintInvalidCommandBuffer(const debug_report_data *report_data, const CMD_BUFFER_STATE *cb_state,
+                                      const char *call_source, VulkanTypedHandle obj) {
+    const char *cause_str = GetCauseStr(obj);
+    string VUID;
+    string_sprintf(&VUID, "%s-%s", kVUID_Core_DrawState_InvalidCommandBuffer, object_string[obj.type]);
+    return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
+                   HandleToUint64(cb_state->commandBuffer), VUID.c_str(),
+                   "You are adding %s to %s that is invalid because bound %s was %s.", call_source,
+                   report_data->FormatHandle(cb_state->commandBuffer).c_str(), report_data->FormatHandle(obj).c_str(), cause_str);
+}
+
 bool CoreChecks::ReportInvalidCommandBuffer(const CMD_BUFFER_STATE *cb_state, const char *call_source) const {
     bool skip = false;
     for (auto obj : cb_state->broken_bindings) {
-        const char *cause_str = GetCauseStr(obj);
-        string VUID;
-        string_sprintf(&VUID, "%s-%s", kVUID_Core_DrawState_InvalidCommandBuffer, object_string[obj.type]);
-        skip |=
-            log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
-                    HandleToUint64(cb_state->commandBuffer), VUID.c_str(),
-                    "You are adding %s to %s that is invalid because bound %s was %s.", call_source,
-                    report_data->FormatHandle(cb_state->commandBuffer).c_str(), report_data->FormatHandle(obj).c_str(), cause_str);
+        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source, obj);
     }
 
     for (auto obj : cb_state->object_bindings) {
-        auto base_obj = GetStateStructPtrFromObject(obj);
-
-        if (base_obj) {
-            switch (obj.type) {
-                case kVulkanObjectTypeBufferView:
-                    if (((BUFFER_VIEW_STATE *)base_obj)->buffer_state->destroyed) {
+        if (obj.type == kVulkanObjectTypeBufferView) {
+            auto buffer_view_state = GetBufferViewState(obj.Cast<VkBufferView>());
+            if (buffer_view_state && buffer_view_state->buffer_state) {
+                if (buffer_view_state->buffer_state->destroyed) {
+                    skip |= PrintInvalidCommandBuffer(
+                        report_data, cb_state, call_source,
+                        VulkanTypedHandle(buffer_view_state->buffer_state->buffer, kVulkanObjectTypeBuffer));
+                }
+                for (auto mem_state_binding : buffer_view_state->buffer_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
                     }
-                    for (auto mem_state_binding : ((BUFFER_VIEW_STATE *)base_obj)->buffer_state->GetBoundMemoryState()) {
-                        if (mem_state_binding->destroyed) {
-                        }
+                }
+            }
+        }
+        else if (obj.type == kVulkanObjectTypeImageView) {
+            auto image_view_state = GetImageViewState(obj.Cast<VkImageView>());
+            if (image_view_state && image_view_state->image_state) {
+                if (image_view_state->image_state->destroyed) {
+                    skip |=
+                        PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                  VulkanTypedHandle(image_view_state->image_state->image, kVulkanObjectTypeImage));
+                }
+                for (auto mem_state_binding : image_view_state->image_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
                     }
-                    break;
-                case kVulkanObjectTypeImageView:
-                    if (((IMAGE_VIEW_STATE *)base_obj)->image_state->destroyed) {
-                    }
-                    for (auto mem_state_binding : ((IMAGE_VIEW_STATE *)base_obj)->image_state->GetBoundMemoryState()) {
-                        if (mem_state_binding->destroyed) {
-                        }
-                    }
-                    break;
-                default:
-                    break;
+                }
             }
         }
     }

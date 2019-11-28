@@ -483,19 +483,8 @@ void ValidationStateTracker::AddCommandBufferBindingImage(CMD_BUFFER_STATE *cb_n
     }
     // Skip validation if this image was created through WSI
     if (image_state->create_from_swapchain == VK_NULL_HANDLE) {
-        // First update cb binding for image
-        if (AddCommandBufferBinding(image_state->cb_bindings,
-                                    VulkanTypedHandle(image_state->image, kVulkanObjectTypeImage, image_state), cb_node)) {
-            // Now update CB binding in MemObj mini CB list
-            for (auto mem_state_binding : image_state->GetBoundMemoryState()) {
-                if (mem_state_binding) {
-                    // Now update CBInfo's Mem reference list
-                    AddCommandBufferBinding(
-                        mem_state_binding->cb_bindings,
-                        VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory, mem_state_binding), cb_node);
-                }
-            }
-        }
+        AddCommandBufferBinding(image_state->cb_bindings,
+                                VulkanTypedHandle(image_state->image, kVulkanObjectTypeImage, image_state), cb_node);
     }
 }
 
@@ -513,19 +502,8 @@ void ValidationStateTracker::AddCommandBufferBindingBuffer(CMD_BUFFER_STATE *cb_
     if (disabled.command_buffer_state) {
         return;
     }
-    // First update cb binding for buffer
-    if (AddCommandBufferBinding(buffer_state->cb_bindings,
-                                VulkanTypedHandle(buffer_state->buffer, kVulkanObjectTypeBuffer, buffer_state), cb_node)) {
-        // Now update CB binding in MemObj mini CB list
-        for (auto mem_state_binding : buffer_state->GetBoundMemoryState()) {
-            if (mem_state_binding) {
-                // Now update CBInfo's Mem reference list
-                AddCommandBufferBinding(mem_state_binding->cb_bindings,
-                                        VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory, mem_state_binding),
-                                        cb_node);
-            }
-        }
-    }
+    AddCommandBufferBinding(buffer_state->cb_bindings,
+                            VulkanTypedHandle(buffer_state->buffer, kVulkanObjectTypeBuffer, buffer_state), cb_node);
 }
 
 // Create binding link between given buffer view node and its buffer with command buffer node
@@ -1205,9 +1183,23 @@ void ValidationStateTracker::IncrementBoundObjects(CMD_BUFFER_STATE const *cb_no
                         }
                     }
                     break;
+                case kVulkanObjectTypeBuffer:
+                    for (auto mem_state_binding : ((BUFFER_STATE *)base_obj)->GetBoundMemoryState()) {
+                        if (mem_state_binding) {
+                            mem_state_binding->in_use.fetch_add(1);
+                        }
+                    }
+                    break;
                 case kVulkanObjectTypeImageView:
                     ((IMAGE_VIEW_STATE *)base_obj)->image_state->in_use.fetch_add(1);
                     for (auto mem_state_binding : ((IMAGE_VIEW_STATE *)base_obj)->image_state->GetBoundMemoryState()) {
+                        if (mem_state_binding) {
+                            mem_state_binding->in_use.fetch_add(1);
+                        }
+                    }
+                    break;
+                case kVulkanObjectTypeImage:
+                    for (auto mem_state_binding : ((IMAGE_STATE *)base_obj)->GetBoundMemoryState()) {
                         if (mem_state_binding) {
                             mem_state_binding->in_use.fetch_add(1);
                         }
@@ -1256,8 +1248,7 @@ void ValidationStateTracker::DecrementBoundResources(CMD_BUFFER_STATE const *cb_
                     ((IMAGE_VIEW_STATE *)base_obj)->image_state->in_use.fetch_sub(1);
                     for (auto mem_state_binding : ((IMAGE_VIEW_STATE *)base_obj)->image_state->GetBoundMemoryState()) {
                         if (mem_state_binding) {
-                            mem_state_binding->in_use.fetch_sub
-                            (1);
+                            mem_state_binding->in_use.fetch_sub(1);
                         }
                     }
                     break;

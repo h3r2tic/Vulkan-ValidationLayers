@@ -1610,8 +1610,64 @@ bool CoreChecks::ReportInvalidCommandBuffer(const CMD_BUFFER_STATE *cb_state, co
     bool skip = false;
     for (auto obj : cb_state->broken_bindings) {
         skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source, obj);
-    }
 
+        if (obj.type == kVulkanObjectTypeBufferView) {
+            auto buffer_view_state = GetBufferViewState(obj.Cast<VkBufferView>());
+            if (buffer_view_state && buffer_view_state->buffer_state) {
+                if (buffer_view_state->buffer_state->destroyed) {
+                    skip |= PrintInvalidCommandBuffer(
+                        report_data, cb_state, call_source,
+                        VulkanTypedHandle(buffer_view_state->buffer_state->buffer, kVulkanObjectTypeBuffer));
+                }
+                for (auto mem_state_binding : buffer_view_state->buffer_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
+                    }
+                }
+            }
+        } else if (obj.type == kVulkanObjectTypeBuffer) {
+            auto buffer_state = GetBufferState(obj.Cast<VkBuffer>());
+            if (buffer_state) {
+                for (auto mem_state_binding : buffer_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
+                    }
+                }
+            }
+        } else if (obj.type == kVulkanObjectTypeImageView) {
+            auto image_view_state = GetImageViewState(obj.Cast<VkImageView>());
+            if (image_view_state && image_view_state->image_state) {
+                if (image_view_state->image_state->destroyed) {
+                    skip |=
+                        PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                  VulkanTypedHandle(image_view_state->image_state->image, kVulkanObjectTypeImage));
+                }
+                for (auto mem_state_binding : image_view_state->image_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
+                    }
+                }
+            }
+        } else if (obj.type == kVulkanObjectTypeImage) {
+            auto image_state = GetImageState(obj.Cast<VkImage>());
+            if (image_state) {
+                for (auto mem_state_binding : image_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
+                    }
+                }
+            }
+        }
+    }
+    return skip;
+}
+
+bool CoreChecks::ReportInvalidCommandBufferRelatedObjs(const CMD_BUFFER_STATE *cb_state, const char *call_source) const {
+    bool skip = false;
     for (auto obj : cb_state->object_bindings) {
         if (obj.type == kVulkanObjectTypeBufferView) {
             auto buffer_view_state = GetBufferViewState(obj.Cast<VkBufferView>());
@@ -1628,8 +1684,17 @@ bool CoreChecks::ReportInvalidCommandBuffer(const CMD_BUFFER_STATE *cb_state, co
                     }
                 }
             }
-        }
-        else if (obj.type == kVulkanObjectTypeImageView) {
+        } else if (obj.type == kVulkanObjectTypeBuffer) {
+            auto buffer_state = GetBufferState(obj.Cast<VkBuffer>());
+            if (buffer_state) {
+                for (auto mem_state_binding : buffer_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
+                    }
+                }
+            }
+        } else if (obj.type == kVulkanObjectTypeImageView) {
             auto image_view_state = GetImageViewState(obj.Cast<VkImageView>());
             if (image_view_state && image_view_state->image_state) {
                 if (image_view_state->image_state->destroyed) {
@@ -1638,6 +1703,16 @@ bool CoreChecks::ReportInvalidCommandBuffer(const CMD_BUFFER_STATE *cb_state, co
                                                   VulkanTypedHandle(image_view_state->image_state->image, kVulkanObjectTypeImage));
                 }
                 for (auto mem_state_binding : image_view_state->image_state->GetBoundMemoryState()) {
+                    if (mem_state_binding->destroyed) {
+                        skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
+                                                          VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
+                    }
+                }
+            }
+        } else if (obj.type == kVulkanObjectTypeImage) {
+            auto image_state = GetImageState(obj.Cast<VkImage>());
+            if (image_state) {
+                for (auto mem_state_binding : image_state->GetBoundMemoryState()) {
                     if (mem_state_binding->destroyed) {
                         skip |= PrintInvalidCommandBuffer(report_data, cb_state, call_source,
                                                           VulkanTypedHandle(mem_state_binding->mem, kVulkanObjectTypeDeviceMemory));
@@ -1656,20 +1731,29 @@ static const std::array<const char *, CMD_RANGE_SIZE> must_be_recording_list = {
 // Validate the given command being added to the specified cmd buffer, flagging errors if CB is not in the recording state or if
 // there's an issue with the Cmd ordering
 bool CoreChecks::ValidateCmd(const CMD_BUFFER_STATE *cb_state, const CMD_TYPE cmd, const char *caller_name) const {
+    bool skip = false;
     switch (cb_state->state) {
         case CB_RECORDING:
-            return ValidateCmdSubpassState(cb_state, cmd);
+            skip |= ValidateCmdSubpassState(cb_state, cmd);
+            skip |= ReportInvalidCommandBufferRelatedObjs(cb_state, caller_name);
+            return skip;
 
         case CB_INVALID_COMPLETE:
         case CB_INVALID_INCOMPLETE:
-            return ReportInvalidCommandBuffer(cb_state, caller_name);
+            skip |= ReportInvalidCommandBuffer(cb_state, caller_name);
+            skip |= ReportInvalidCommandBufferRelatedObjs(cb_state, caller_name);
+            return skip;
+
+        case CB_RECORDED:
+            skip |= ReportInvalidCommandBufferRelatedObjs(cb_state, caller_name);
 
         default:
             assert(cmd != CMD_NONE);
             const auto error = must_be_recording_list[cmd];
-            return log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
+            skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                            HandleToUint64(cb_state->commandBuffer), error,
                            "You must call vkBeginCommandBuffer() before this call to %s.", caller_name);
+            return skip;
     }
 }
 
@@ -1984,6 +2068,7 @@ bool CoreChecks::ValidateCommandBufferState(const CMD_BUFFER_STATE *cb_state, co
         case CB_INVALID_INCOMPLETE:
         case CB_INVALID_COMPLETE:
             skip |= ReportInvalidCommandBuffer(cb_state, call_source);
+            skip |= ReportInvalidCommandBufferRelatedObjs(cb_state, call_source);
             break;
 
         case CB_NEW:
@@ -1994,10 +2079,15 @@ bool CoreChecks::ValidateCommandBufferState(const CMD_BUFFER_STATE *cb_state, co
             break;
 
         case CB_RECORDING:
+            skip |= ReportInvalidCommandBufferRelatedObjs(cb_state, call_source);
             skip |= log_msg(report_data, VK_DEBUG_REPORT_ERROR_BIT_EXT, VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_BUFFER_EXT,
                             HandleToUint64(cb_state->commandBuffer), kVUID_Core_DrawState_NoEndCommandBuffer,
                             "You must call vkEndCommandBuffer() on %s before this call to %s!",
                             report_data->FormatHandle(cb_state->commandBuffer).c_str(), call_source);
+            break;
+
+        case CB_RECORDED:
+            skip |= ReportInvalidCommandBufferRelatedObjs(cb_state, call_source);
             break;
 
         default: /* recorded */

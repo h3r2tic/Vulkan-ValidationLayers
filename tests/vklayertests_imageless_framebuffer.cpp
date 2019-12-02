@@ -156,8 +156,12 @@ TEST_F(VkLayerTest, ImagelessFramebufferRenderPassBeginImageViewMismatchTests) {
     renderPassBeginInfo.renderArea.extent.height = attachmentHeight;
 
     // Imageless framebuffer creation bit not present
-    framebufferCreateInfo.pAttachments = &imageView;
-    framebufferCreateInfo.flags = 0;
+    // framebufferCreateInfo.pAttachments = &imageView;
+    // framebufferCreateInfo.flags = 0;
+
+    framebufferCreateInfo.pAttachments = nullptr;
+    framebufferCreateInfo.flags = VK_FRAMEBUFFER_CREATE_IMAGELESS_BIT_KHR;
+
     vk::CreateFramebuffer(m_device->device(), &framebufferCreateInfo, nullptr, &framebuffer);
     renderPassBeginInfo.framebuffer = framebuffer;
     TestRenderPassBegin(m_errorMonitor, m_device->device(), m_commandBuffer->handle(), &renderPassBeginInfo, rp2Supported,
